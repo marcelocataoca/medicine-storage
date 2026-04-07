@@ -1,0 +1,39 @@
+---
+description: Visão geral do projeto medicine-storage — objetivo, stack e estrutura de pastas
+alwaysApply: true
+---
+
+# medicine-storage
+
+Aplicativo mobile para **controle de estoque pessoal de remédios**. Permite ao usuário consultar remédios cadastrados e registrar novos itens com nome, descrição, validade e quantidade.
+
+## Stack
+
+- **Expo** ~54 + **React Native** 0.81.5
+- **TypeScript** (strict mode ativo)
+- **Expo Router** ~6 — navegação baseada em arquivos (`app/`)
+- **@expo/vector-icons** (Ionicons e IconSymbol) para ícones
+- **react-native-reanimated** ~4 para animações
+
+## Estrutura de pastas
+
+```
+app/               # Rotas e layouts (Expo Router)
+  (tabs)/          # Grupo de abas do footer
+    index.tsx      # Aba "Consulta" — busca de remédios
+    register.tsx   # Aba "Cadastro" — formulário de novo remédio
+    _layout.tsx    # Configuração do TabNavigator
+  _layout.tsx      # Layout raiz (Stack + ThemeProvider)
+components/        # Componentes reutilizáveis de UI
+hooks/             # Hooks customizados (tema, color scheme)
+constants/         # theme.ts — cores, fontes
+```
+
+## Alias de importação
+
+`@/*` → raiz do projeto (configurado em `tsconfig.json`)
+
+```ts
+import { Colors } from '@/constants/theme';
+import { HapticTab } from '@/components/haptic-tab';
+```

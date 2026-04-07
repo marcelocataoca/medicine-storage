@@ -1,0 +1,54 @@
+---
+description: Convenções de código React Native / TypeScript para o projeto
+globs: **/*.tsx,**/*.ts
+alwaysApply: false
+---
+
+# Convenções React Native + TypeScript
+
+## Componentes
+
+- Sempre **componentes funcionais** com `export default function NomeScreen()`
+- Props devem ter **tipo explícito** (sem `any`):
+
+```tsx
+// ✅ CORRETO
+const Input = ({ placeholder, value, onChangeText }: {
+  placeholder: string;
+  value: string;
+  onChangeText: (text: string) => void;
+}) => { ... };
+
+// ❌ ERRADO
+const Input = ({ placeholder, value, onChangeText }) => { ... };
+```
+
+## Estilos
+
+- Sempre usar `StyleSheet.create({})` — nunca objetos inline
+- Cores e fontes devem vir de `@/constants/theme.ts`
+
+## Navegação (Expo Router)
+
+- Telas ficam em `app/` — o nome do arquivo é a rota
+- Grupos sem prefixo na URL usam `(nome-do-grupo)/`
+- Configuração de abas sempre em `app/(tabs)/_layout.tsx`
+
+## Imports
+
+- Usar alias `@/` para imports internos ao projeto
+- Ícones: `IconSymbol` de `@/components/ui/icon-symbol` (usa `magnifyingglass`, `plus`, etc.)
+
+## Estado
+
+- `useState` para estado local de tela
+- Nenhum gerenciador global ainda — não adicionar sem discussão prévia
+
+## Tela de cadastro (`app/(tabs)/register.tsx`)
+
+- Componente raiz: `export default function RegisterScreen()`
+- Layout: `ThemedView` → `KeyboardAvoidingView` (iOS `behavior="padding"`) → `ScrollView` com `keyboardShouldPersistTaps="handled"`
+- Tipografia: `ThemedText` (`type="title"` no título com `fontSize` ~24 via `StyleSheet`; labels `defaultSemiBold`)
+- Campos: `TextInput` nativo; estáticos em `StyleSheet.create`; **cores que dependem do tema** via `useThemeColor` e mesclagem no `style` do input (ex.: `backgroundColor`, `color`, `borderColor`, `placeholderTextColor`)
+- Ação principal: `Pressable` com fundo `Colors[colorScheme].tint`; texto do botão com `ThemedText` e `lightColor`/`darkColor` para contraste no tint
+- Regras de produto atuais: só **nome** obrigatório; submit não persiste — usar `Alert` e limpar estado até existir camada de dados

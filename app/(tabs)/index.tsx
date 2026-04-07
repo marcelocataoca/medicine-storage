@@ -1,98 +1,250 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { StyleSheet, Text, TextInput, View, FlatList } from 'react-native';
+import { useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { Colors } from '@/constants/theme';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+type Medicine = {
+  id: string;
+  name: string;
+  description: string;
+  /** ISO YYYY-MM-DD */
+  validade: string;
+  quantidade: number;
+};
+
+type ExpiryUrgency = 'critical' | 'warning' | 'ok';
+
+function daysUntilExpiry(isoDate: string): number {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const expiry = new Date(y, m - 1, d);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  expiry.setHours(0, 0, 0, 0);
+  return Math.ceil((expiry.getTime() - today.getTime()) / 86400000);
+}
+
+function getExpiryUrgency(isoDate: string): ExpiryUrgency {
+  const days = daysUntilExpiry(isoDate);
+  if (days < 30) return 'critical';
+  if (days < 90) return 'warning';
+  return 'ok';
+}
+
+function formatValidadeBR(isoDate: string): string {
+  const [y, m, d] = isoDate.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+  const Input = ({ placeholder, value, onChangeText, style }: {
+    placeholder: string;
+    value: string;
+    onChangeText: (text: string) => void;
+    style?: object;
+  }) => {
+    return (
+      <View style={[styles.inputContainer, style]}>
+        <TextInput 
+          style={[styles.contentInput, style]}
+          placeholder={placeholder}
+          value={value}
+          onChangeText={onChangeText}
+        />
+        <Ionicons 
+          name="search" 
+          size={20} 
+          color="#999" 
+          style={styles.icon}
+        />
+      </View>
+    )
+  };
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const [text, setText] = useState('');
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+  return (
+    <View style={styles.container}>
+      <View style={styles.contentContainer}>
+        <Input 
+          placeholder="Busque o remédio"
+          value={text}
+          onChangeText={setText}
+          style={styles.contentInput}        
+        />
+
+        <View style={styles.resultBox}>
+          <FlatList
+            data={getFilteredMedicines(text)}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => {
+              const urgency = getExpiryUrgency(item.validade);
+              let iconName: keyof typeof Ionicons.glyphMap = 'checkmark-circle-outline';
+              let tagStyle = styles.expiryTagOk;
+              let iconColor = '#15803D';
+              if (urgency === 'critical') {
+                iconName = 'alert-circle';
+                tagStyle = styles.expiryTagCritical;
+                iconColor = '#B91C1C';
+              } else if (urgency === 'warning') {
+                iconName = 'hourglass-outline';
+                tagStyle = styles.expiryTagWarning;
+                iconColor = '#A16207';
+              }
+
+              return (
+                <View style={styles.resultItem}>
+                  <View style={styles.resultItemRow}>
+                    <View style={styles.resultItemLeft}>
+                      <Text style={styles.resultItemTitle}>{item.name}</Text>
+                      <Text style={styles.resultItemDesc}>{item.description}</Text>
+                    </View>
+                    <View style={styles.resultItemRight}>
+                      <View style={styles.expiryLine}>
+                        <View style={[styles.expiryTag, tagStyle]}>
+                          <Ionicons name={iconName} size={14} color={iconColor} />
+                        </View>
+                        <Text style={styles.resultItemValidade}>
+                          {formatValidadeBR(item.validade)}
+                        </Text>
+                      </View>
+                      <Text style={styles.resultItemQuantidade}>
+                        {item.quantidade} em estoque
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            }}
+            showsVerticalScrollIndicator={false}
+          />
+        </View>        
+      </View>
+    </View>
   );
 }
 
+/** Validades espalhadas para exercitar as tags (<30d vermelho, 30–89d amarelo, ≥90d verde). Referência: 2026-04-06. */
+const MEDICINES: Medicine[] = [
+  { id: '1', name: 'Paracetamol', description: 'Dor e febre', validade: '2026-04-25', quantidade: 24 },
+  { id: '2', name: 'Ibuprofeno', description: 'Anti-inflamatório', validade: '2026-04-18', quantidade: 10 },
+  { id: '3', name: 'Amoxicilina', description: 'Antibiótico', validade: '2026-06-01', quantidade: 14 },
+  { id: '4', name: 'Cetirizina', description: 'Anti-histamínico', validade: '2026-05-20', quantidade: 30 },
+  { id: '5', name: 'Omeprazol', description: 'Refluxo e azia', validade: '2026-07-10', quantidade: 8 },
+  { id: '6', name: 'Losartana', description: 'Hipertensão', validade: '2028-04-06', quantidade: 60 },
+  { id: '7', name: 'Metformina', description: 'Diabetes', validade: '2027-11-01', quantidade: 90 },
+  { id: '8', name: 'Ranitidina', description: 'Úlcera gástrica', validade: '2026-05-05', quantidade: 5 },
+  { id: '9', name: 'Cloridrato de sertralina', description: 'Antidepressivo', validade: '2026-08-20', quantidade: 28 },
+  { id: '10', name: 'Vitamina C', description: 'Suplemento', validade: '2027-02-01', quantidade: 100 },
+];
+
+function getFilteredMedicines(query: string): Medicine[] {
+  if (!query) return MEDICINES;
+  const q = query.toLowerCase();
+  return MEDICINES.filter(m => (m.name + ' ' + m.description).toLowerCase().includes(q));
+}
+
 const styles = StyleSheet.create({
-  titleContainer: {
+  container: {
+    flex: 1,
+  },
+  inputContainer: {
+    position: 'relative',
+    width: '100%',
+  },
+  contentContainer: {
+    flex: 1,
+    padding: 20,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  contentInput: {
+    fontSize: 16,
+    backgroundColor: '#ffffff',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    width: '100%',
+    color: '#000000',
+    paddingRight: 40,
+  },
+  icon: {
+    position: 'absolute',
+    right: 12,
+    marginTop: 28,
+    transform: [{ translateY: -10 }],
+  },
+  resultBox: {
+    width: '100%',
+    height: 420,
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    marginTop: 16,
+    padding: 10,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+  },
+  resultItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  resultItemRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  resultItemLeft: {
+    flex: 1,
+    minWidth: 0,
+  },
+  resultItemRight: {
+    alignItems: 'flex-end',
+    flexShrink: 0,
+  },
+  expiryLine: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  expiryTag: {
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  expiryTagCritical: {
+    backgroundColor: '#FEE2E2',
+  },
+  expiryTagWarning: {
+    backgroundColor: '#FEF9C3',
+  },
+  expiryTagOk: {
+    backgroundColor: '#DCFCE7',
+  },
+  resultItemTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.light.text,
+  },
+  resultItemDesc: {
+    marginTop: 4,
+    fontSize: 14,
+    color: '#444',
+  },
+  resultItemValidade: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.light.text,
+  },
+  resultItemQuantidade: {
+    marginTop: 6,
+    fontSize: 13,
+    color: '#555',
   },
 });
