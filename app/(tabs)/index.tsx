@@ -1,7 +1,22 @@
-import { StyleSheet, Text, TextInput, View, FlatList } from 'react-native';
+import { signOut } from 'firebase/auth';
+import { router } from 'expo-router';
 import { useState } from 'react';
+import {
+  Alert,
+  FlatList,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+
 import { Colors } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { auth } from '@/lib/firebase';
 
 type Medicine = {
   id: string;
@@ -60,10 +75,94 @@ function formatValidadeBR(isoDate: string): string {
   };
 
 export default function HomeScreen() {
+  const insets = useSafeAreaInsets();
+  const colorScheme = useColorScheme() ?? 'light';
+  const palette = Colors[colorScheme];
   const [text, setText] = useState('');
+  const [menuVisible, setMenuVisible] = useState(false);
+
+  const closeMenu = () => setMenuVisible(false);
+
+  const goToCadastro = () => {
+    closeMenu();
+    router.push('/(tabs)/medicine-register');
+  };
+
+  const handleLogout = async () => {
+    closeMenu();
+    try {
+      await signOut(auth);
+      router.replace('/login');
+    } catch {
+      Alert.alert('Erro', 'Não foi possível sair.');
+    }
+  };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <View style={styles.headerRow}>
+        <Pressable
+          accessibilityLabel="Abrir menu"
+          accessibilityRole="button"
+          accessibilityState={{ expanded: menuVisible }}
+          hitSlop={12}
+          onPress={() => setMenuVisible(true)}
+          style={({ pressed }) => [
+            styles.menuButton,
+            colorScheme === 'dark' ? styles.menuButtonSurfaceDark : styles.menuButtonSurfaceLight,
+            pressed &&
+              (colorScheme === 'dark' ? styles.menuButtonPressedDark : styles.menuButtonPressedLight),
+          ]}>
+          <Ionicons name="menu" size={30} color={palette.text} />
+        </Pressable>
+      </View>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={closeMenu}
+        transparent
+        visible={menuVisible}>
+        <View style={styles.menuOverlay}>
+          <Pressable
+            accessibilityLabel="Fechar menu"
+            style={styles.menuBackdrop}
+            onPress={closeMenu}
+          />
+          <View
+            accessibilityRole="menu"
+            style={[styles.menuPanel, { top: insets.top + 20 }]}
+            pointerEvents="box-none">
+            <View style={styles.menuSection}>
+              <Pressable
+                accessibilityLabel="Ir para cadastro de medicamentos"
+                accessibilityRole="menuitem"
+                onPress={goToCadastro}
+                style={({ pressed }) => [
+                  styles.menuRow,
+                  pressed && styles.menuRowPressed,
+                ]}>
+                <Ionicons name="add-circle-outline" size={24} color={Colors.light.text} />
+                <Text style={styles.menuRowLabel}>Cadastro</Text>
+              </Pressable>
+            </View>
+            <View style={styles.menuDivider} />
+            <View style={styles.menuSection}>
+              <Pressable
+                accessibilityLabel="Sair da conta"
+                accessibilityRole="menuitem"
+                onPress={() => void handleLogout()}
+                style={({ pressed }) => [
+                  styles.menuRow,
+                  pressed && styles.menuRowPressed,
+                ]}>
+                <Ionicons name="log-out-outline" size={24} color="#B91C1C" />
+                <Text style={[styles.menuRowLabel, styles.menuRowLabelDanger]}>Sair</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <View style={styles.contentContainer}>
         <Input 
           placeholder="Busque o remédio"
@@ -119,7 +218,7 @@ export default function HomeScreen() {
           />
         </View>        
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -147,6 +246,99 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingHorizontal: 12,
+    paddingBottom: 4,
+    minHeight: 44,
+  },
+  menuButton: {
+    minWidth: 44,
+    minHeight: 44,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 11,
+  },
+  menuButtonSurfaceLight: {
+    backgroundColor: '#EEF1F4',
+    borderWidth: 1.5,
+    borderColor: '#9CA3AF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.14,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  menuButtonSurfaceDark: {
+    backgroundColor: '#3A3D42',
+    borderWidth: 1.5,
+    borderColor: '#8E95A0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 3,
+    elevation: 4,
+  },
+  menuButtonPressedLight: {
+    backgroundColor: '#DDE2E8',
+  },
+  menuButtonPressedDark: {
+    backgroundColor: '#4A4F56',
+  },
+  menuOverlay: {
+    flex: 1,
+    justifyContent: 'flex-start',
+  },
+  menuBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+  },
+  menuPanel: {
+    position: 'absolute',
+    left: 12,
+    minWidth: 251,
+    backgroundColor: '#ffffff',
+    borderRadius: 13,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+  },
+  menuSection: {
+    paddingVertical: 3,
+  },
+  menuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    minHeight: 48,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+  },
+  menuRowPressed: {
+    backgroundColor: '#f3f4f6',
+  },
+  menuRowLabel: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: Colors.light.text,
+  },
+  menuRowLabelDanger: {
+    color: '#B91C1C',
+  },
+  menuDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#e5e7eb',
+    marginHorizontal: 14,
+  },
   inputContainer: {
     position: 'relative',
     width: '100%',
@@ -155,7 +347,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 8,
   },
   contentInput: {
     fontSize: 16,
