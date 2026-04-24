@@ -19,6 +19,7 @@ import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useThemeColor } from '@/hooks/use-theme-color';
 import { db } from '@/lib/firebase';
+import { FirebaseError } from 'firebase/app';
 
 export default function MedicineRegisterScreen() {
   const colorScheme = useColorScheme() ?? 'light';
@@ -59,12 +60,11 @@ export default function MedicineRegisterScreen() {
 
     try {
       await addDoc(collection(db, 'medicines'), {
-        nome: nome.trim(),
-        descricao: descricao.trim(),
-        quantidade: quantidadeNormalizada,
-        validadeTimestamp: Timestamp.fromDate(validade),
-        validadeIso: validade.toISOString(),
-        createdAt: serverTimestamp(),
+        name: nome.trim(),
+        description: descricao.trim(),
+        amount: quantidadeNormalizada,
+        validate: Timestamp.fromDate(validade),     
+        // createdAt: serverTimestamp(),
       });
 
       Alert.alert('Medicamento registrado', 'O medicamento foi salvo com sucesso.');
@@ -72,8 +72,14 @@ export default function MedicineRegisterScreen() {
       setDescricao('');
       setValidade(null);
       setQuantidade('');
-    } catch {
-      Alert.alert('Erro ao registrar', 'Não foi possível salvar o medicamento. Tente novamente.');
+    } catch (err){
+       if (err instanceof FirebaseError) {
+        console.log('Firestore error:', err.code, err.message);
+        Alert.alert('Erro ao registrar', `${err.code}: ${err.message}`);
+      } else {
+        console.log('Erro desconhecido:', err);
+        Alert.alert('Erro ao registrar', 'Erro desconhecido ao salvar medicamento.');
+      }
     }
   }
 
