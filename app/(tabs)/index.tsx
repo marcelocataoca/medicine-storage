@@ -1,8 +1,10 @@
 import { signOut } from 'firebase/auth';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { doc, deleteDoc, setDoc, collection, onSnapshot, orderBy, query, Timestamp } from 'firebase/firestore';
+import { useEffect, useRef, useMemo, useState } from 'react';
 import {
   Alert,
+  ActivityIndicator,
   FlatList,
   Modal,
   Pressable,
@@ -16,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 
 type Medicine = {
   id: string;
@@ -25,6 +27,18 @@ type Medicine = {
   /** ISO YYYY-MM-DD */
   validade: string;
   quantidade: number;
+};
+
+type MedicineDocument = {
+  name?: unknown;
+  description?: unknown;
+  validate?: unknown;
+  amount?: unknown;
+};
+
+type PendingDelete = {
+  id: string;
+  backup: Medicine;
 };
 
 type ExpiryUrgency = 'critical' | 'warning' | 'ok';
@@ -39,6 +53,7 @@ function daysUntilExpiry(isoDate: string): number {
 }
 
 function getExpiryUrgency(isoDate: string): ExpiryUrgency {
+  if (!isoDate) return 'ok';
   const days = daysUntilExpiry(isoDate);
   if (days < 30) return 'critical';
   if (days < 90) return 'warning';
@@ -46,8 +61,37 @@ function getExpiryUrgency(isoDate: string): ExpiryUrgency {
 }
 
 function formatValidadeBR(isoDate: string): string {
+  if (!isoDate) return 'Sem validade';
   const [y, m, d] = isoDate.split('-');
   return `${d}/${m}/${y}`;
+}
+
+function dateToISODate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function isFirestoreTimestamp(value: unknown): value is Timestamp {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'toDate' in value &&
+    typeof (value as Timestamp).toDate === 'function'
+  );
+}
+
+function normalizeMedicine(id: string, data: MedicineDocument): Medicine {
+  const validateDate = isFirestoreTimestamp(data.validate) ? data.validate.toDate() : null;
+
+  return {
+    id,
+    name: typeof data.name === 'string' ? data.name : 'Medicamento sem nome',
+    description: typeof data.description === 'string' ? data.description : '',
+    validade: validateDate ? dateToISODate(validateDate) : '',
+    quantidade: typeof data.amount === 'number' ? data.amount : 0,
+  };
 }
 
   const Input = ({ placeholder, value, onChangeText, style }: {
@@ -80,6 +124,47 @@ export default function HomeScreen() {
   const palette = Colors[colorScheme];
   const [text, setText] = useState('');
   const [menuVisible, setMenuVisible] = useState(false);
+  const [medicines, setMedicines] = useState<Medicine[]>([]);
+  const [selectedForDeleteId, setSelectedForDeleteId] = useState<string | null>(null);
+  const [undoVisible, setUndoVisible] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isLoadingMedicines, setIsLoadingMedicines] = useState(true);
+  const [medicineLoadError, setMedicineLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const medicinesQuery = query(collection(db, 'medicines'), orderBy('validate', 'asc'));
+
+    const unsubscribe = onSnapshot(
+      medicinesQuery,
+      (snapshot) => {
+        const items = snapshot.docs.map((doc) =>
+          normalizeMedicine(doc.id, doc.data() as MedicineDocument)
+        );
+        setMedicines(items);
+        setMedicineLoadError(null);
+        setIsLoadingMedicines(false);
+      },
+      (error) => {
+        console.log('Erro ao carregar medicamentos:', error);
+        setMedicineLoadError('Não foi possível carregar os medicamentos.');
+        setIsLoadingMedicines(false);
+      }
+    );
+
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (undoTimerRef.current) {
+        clearTimeout(undoTimerRef.current);
+        undoTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const filteredMedicines = useMemo(() => getFilteredMedicines(text, medicines), [text, medicines]);
 
   const closeMenu = () => setMenuVisible(false);
 
@@ -97,6 +182,183 @@ export default function HomeScreen() {
       Alert.alert('Erro', 'Não foi possível sair.');
     }
   };
+
+  function clearUndoTimer() {
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+  }
+
+  function clearUndoState() {
+    clearUndoTimer();
+    setUndoVisible(false);
+    setPendingDelete(null);
+  }
+
+  function confirmDelete(item: Medicine) {
+    Alert.alert(
+      'Excluir medicamento',
+      `Deseja excluir "${item.name}"?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: () => {
+            void executeDelete(item);
+          },
+        },
+      ]
+    );
+  }
+
+  async function executeDelete(item: Medicine) {
+    try {
+      setSelectedForDeleteId(null);
+      setPendingDelete({ id: item.id, backup: item });
+      setUndoVisible(true);
+
+      await deleteDoc(doc(db, 'medicines', item.id));
+
+      clearUndoTimer();
+      undoTimerRef.current = setTimeout(() => {
+        setUndoVisible(false);
+        setPendingDelete(null);
+        undoTimerRef.current = null;
+      }, 5000);
+    } catch (error) {
+      console.log('Erro ao excluir medicamento:', error);
+      Alert.alert('Erro', 'Não foi possível excluir o medicamento.');
+      clearUndoState();
+    }
+  }
+
+  async function handleUndoDelete() {
+    if (!pendingDelete) return;
+
+    try {
+      const { id, backup } = pendingDelete;
+
+      await setDoc(doc(db, 'medicines', id), {
+        name: backup.name,
+        description: backup.description,
+        amount: backup.quantidade,
+        validate: backup.validade
+          ? Timestamp.fromDate(new Date(`${backup.validade}T00:00:00`))
+          : null,
+      });
+
+      clearUndoState();
+    } catch (error) {
+      console.log('Erro ao desfazer exclusão:', error);
+      Alert.alert('Erro', 'Não foi possível desfazer a exclusão.');
+    }
+  }
+
+  function handleRowPressDismissDelete() {
+    setSelectedForDeleteId((current) => {
+      if (current === null) return current;
+      return null;
+    });
+  }
+
+  let medicinesContent = (
+    <FlatList
+      data={filteredMedicines}
+      keyExtractor={(item) => item.id}
+      ListEmptyComponent={
+        <View style={styles.feedbackContainer}>
+          <Text style={styles.feedbackText}>Nenhum medicamento encontrado.</Text>
+        </View>
+      }
+      renderItem={({ item }) => {
+        const urgency = getExpiryUrgency(item.validade);
+        let iconName: keyof typeof Ionicons.glyphMap = 'checkmark-circle-outline';
+        let tagStyle = styles.expiryTagOk;
+        let iconColor = '#15803D';
+        if (urgency === 'critical') {
+          iconName = 'alert-circle';
+          tagStyle = styles.expiryTagCritical;
+          iconColor = '#B91C1C';
+        } else if (urgency === 'warning') {
+          iconName = 'hourglass-outline';
+          tagStyle = styles.expiryTagWarning;
+          iconColor = '#A16207';
+        }
+
+        const showDelete = selectedForDeleteId === item.id;
+
+        return (
+          <View style={styles.resultItem}>
+            <View
+              style={[
+                styles.resultItemRow,
+                showDelete && styles.resultItemRowWithDeleteReveal,
+              ]}>
+              <Pressable
+                accessibilityLabel={showDelete ? 'Fechar exclusão ou toque longo para outro item' : item.name}
+                delayLongPress={300}
+                onLongPress={() => setSelectedForDeleteId(item.id)}
+                onPress={handleRowPressDismissDelete}
+                style={({ pressed }) => [
+                  styles.resultItemMainPressable,
+                  pressed && styles.resultItemPressed,
+                ]}>
+                <View
+                  style={[
+                    styles.resultItemLeft,
+                    showDelete && styles.resultItemLeftWhenDeleteVisible,
+                  ]}>
+                  <Text style={styles.resultItemTitle}>{item.name}</Text>
+                  <Text style={styles.resultItemDesc}>{item.description}</Text>
+                </View>
+                <View style={styles.resultItemRight}>
+                  <View style={styles.expiryLine}>
+                    <View style={[styles.expiryTag, tagStyle]}>
+                      <Ionicons name={iconName} size={14} color={iconColor} />
+                    </View>
+                    <Text style={styles.resultItemValidade}>{formatValidadeBR(item.validade)}</Text>
+                  </View>
+                  <Text style={styles.resultItemQuantidade}>{item.quantidade} em estoque</Text>
+                </View>
+              </Pressable>
+
+              {showDelete ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Excluir ${item.name}`}
+                  hitSlop={8}
+                  onPress={() => confirmDelete(item)}
+                  style={({ pressed }) => [
+                    styles.deleteButtonInline,
+                    pressed && styles.deleteButtonPressed,
+                  ]}>
+                  <Ionicons name="trash-outline" size={18} color="#B91C1C" />
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+        );
+      }}
+      showsVerticalScrollIndicator={false}
+    />
+  );
+
+  if (isLoadingMedicines) {
+    medicinesContent = (
+      <View style={styles.feedbackContainer}>
+        <ActivityIndicator color={palette.tint} />
+        <Text style={styles.feedbackText}>Carregando medicamentos...</Text>
+      </View>
+    );
+  } else if (medicineLoadError) {
+    medicinesContent = (
+      <View style={styles.feedbackContainer}>
+        <Text style={styles.feedbackText}>{medicineLoadError}</Text>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -172,74 +434,25 @@ export default function HomeScreen() {
         />
 
         <View style={styles.resultBox}>
-          <FlatList
-            data={getFilteredMedicines(text)}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => {
-              const urgency = getExpiryUrgency(item.validade);
-              let iconName: keyof typeof Ionicons.glyphMap = 'checkmark-circle-outline';
-              let tagStyle = styles.expiryTagOk;
-              let iconColor = '#15803D';
-              if (urgency === 'critical') {
-                iconName = 'alert-circle';
-                tagStyle = styles.expiryTagCritical;
-                iconColor = '#B91C1C';
-              } else if (urgency === 'warning') {
-                iconName = 'hourglass-outline';
-                tagStyle = styles.expiryTagWarning;
-                iconColor = '#A16207';
-              }
-
-              return (
-                <View style={styles.resultItem}>
-                  <View style={styles.resultItemRow}>
-                    <View style={styles.resultItemLeft}>
-                      <Text style={styles.resultItemTitle}>{item.name}</Text>
-                      <Text style={styles.resultItemDesc}>{item.description}</Text>
-                    </View>
-                    <View style={styles.resultItemRight}>
-                      <View style={styles.expiryLine}>
-                        <View style={[styles.expiryTag, tagStyle]}>
-                          <Ionicons name={iconName} size={14} color={iconColor} />
-                        </View>
-                        <Text style={styles.resultItemValidade}>
-                          {formatValidadeBR(item.validade)}
-                        </Text>
-                      </View>
-                      <Text style={styles.resultItemQuantidade}>
-                        {item.quantidade} em estoque
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              );
-            }}
-            showsVerticalScrollIndicator={false}
-          />
+          {medicinesContent}
         </View>        
       </View>
+      {undoVisible && pendingDelete ? (
+        <View style={[styles.undoToast, { bottom: insets.bottom + 12 }]}>
+          <Text style={styles.undoToastText}>Medicamento excluído</Text>
+          <Pressable onPress={() => void handleUndoDelete()}>
+            <Text style={styles.undoToastAction}>Desfazer</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
 
-/** Validades espalhadas para exercitar as tags (<30d vermelho, 30–89d amarelo, ≥90d verde). Referência: 2026-04-06. */
-const MEDICINES: Medicine[] = [
-  { id: '1', name: 'Paracetamol', description: 'Dor e febre', validade: '2026-04-25', quantidade: 24 },
-  { id: '2', name: 'Ibuprofeno', description: 'Anti-inflamatório', validade: '2026-04-18', quantidade: 10 },
-  { id: '3', name: 'Amoxicilina', description: 'Antibiótico', validade: '2026-06-01', quantidade: 14 },
-  { id: '4', name: 'Cetirizina', description: 'Anti-histamínico', validade: '2026-05-20', quantidade: 30 },
-  { id: '5', name: 'Omeprazol', description: 'Refluxo e azia', validade: '2026-07-10', quantidade: 8 },
-  { id: '6', name: 'Losartana', description: 'Hipertensão', validade: '2028-04-06', quantidade: 60 },
-  { id: '7', name: 'Metformina', description: 'Diabetes', validade: '2027-11-01', quantidade: 90 },
-  { id: '8', name: 'Ranitidina', description: 'Úlcera gástrica', validade: '2026-05-05', quantidade: 5 },
-  { id: '9', name: 'Cloridrato de sertralina', description: 'Antidepressivo', validade: '2026-08-20', quantidade: 28 },
-  { id: '10', name: 'Vitamina C', description: 'Suplemento', validade: '2027-02-01', quantidade: 100 },
-];
-
-function getFilteredMedicines(query: string): Medicine[] {
-  if (!query) return MEDICINES;
+function getFilteredMedicines(query: string, medicines: Medicine[]): Medicine[] {
+  if (!query) return medicines;
   const q = query.toLowerCase();
-  return MEDICINES.filter(m => (m.name + ' ' + m.description).toLowerCase().includes(q));
+  return medicines.filter((m) => (m.name + ' ' + m.description).toLowerCase().includes(q));
 }
 
 const styles = StyleSheet.create({
@@ -367,7 +580,7 @@ const styles = StyleSheet.create({
   },
   resultBox: {
     width: '100%',
-    height: 420,
+    height: 'auto',
     backgroundColor: '#ffffff',
     borderRadius: 8,
     marginTop: 16,
@@ -377,6 +590,19 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.12,
     shadowRadius: 4,
+  },
+  feedbackContainer: {
+    flex: 1,
+    minHeight: 160,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingHorizontal: 20,
+  },
+  feedbackText: {
+    fontSize: 15,
+    color: '#555',
+    textAlign: 'center',
   },
   resultItem: {
     paddingVertical: 12,
@@ -388,11 +614,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
+    gap: 6,
+  },
+  resultItemRowWithDeleteReveal: {
+    gap: 4,
+  },
+  resultItemMainPressable: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
     gap: 12,
   },
   resultItemLeft: {
     flex: 1,
     minWidth: 0,
+  },
+  resultItemLeftWhenDeleteVisible: {
+    transform: [{ translateX: -6 }],
   },
   resultItemRight: {
     alignItems: 'flex-end',
@@ -402,6 +642,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flexShrink: 1,
   },
   expiryTag: {
     paddingHorizontal: 6,
@@ -438,5 +679,40 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 13,
     color: '#555',
+  },
+  resultItemPressed: {
+    opacity: 0.92,
+  },
+  deleteButtonInline: {
+    alignSelf: 'flex-start',
+    marginTop: 2,
+    padding: 6,
+    borderRadius: 8,
+    backgroundColor: '#FEE2E2',
+  },
+  deleteButtonPressed: {
+    opacity: 0.75,
+  },
+  undoToast: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: '#1F2937',
+  },
+  undoToastText: {
+    color: '#F9FAFB',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  undoToastAction: {
+    color: '#93C5FD',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

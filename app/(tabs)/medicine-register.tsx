@@ -1,5 +1,5 @@
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
-import { addDoc, collection, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { addDoc, collection, Timestamp } from 'firebase/firestore';
 import { useMemo, useState } from 'react';
 import {
   Alert,
@@ -219,10 +219,10 @@ export default function MedicineRegisterScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  flex: {
-    flex: 1,
-  },
+  const styles = StyleSheet.create({
+    flex: {
+      flex: 1,
+    },
   screen: {
     flex: 1,
   },
