@@ -1,24 +1,27 @@
-import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { addDoc, collection, Timestamp } from 'firebase/firestore';
-import { useMemo, useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Alert,
   Keyboard,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
-  TextInput,
   TouchableWithoutFeedback,
+  View,
 } from 'react-native';
 
+import { MedicineFormFields } from '@/components/medicine-form-fields';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useThemeColor } from '@/hooks/use-theme-color';
+import { lookupProductByBarcode } from '@/lib/barcode-product-lookup';
 import { db } from '@/lib/firebase';
+import { parseQuantidade, validateMedicineForm } from '@/lib/medicine';
 import { FirebaseError } from 'firebase/app';
 
 export default function MedicineRegisterScreen() {
@@ -29,42 +32,26 @@ export default function MedicineRegisterScreen() {
   const [descricao, setDescricao] = useState('');
   const [validade, setValidade] = useState<Date | null>(null);
   const [quantidade, setQuantidade] = useState('');
-  const [showDatePicker, setShowDatePicker] = useState(false);
-
-  const inputBg = useThemeColor({ light: '#ffffff', dark: '#1c1c1e' }, 'background');
-  const inputText = useThemeColor({}, 'text');
-  const placeholderColor = useThemeColor({ light: '#687076', dark: '#9BA1A6' }, 'icon');
-  const borderColor = useThemeColor({ light: '#e2e8f0', dark: '#3a3a3c' }, 'icon');
-
-  const minValidadeDate = useMemo(() => {
-    const tomorrow = new Date();
-    tomorrow.setHours(0, 0, 0, 0);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return tomorrow;
-  }, []);
-
-  const validadeLabel = validade ? formatDateBR(validade) : 'DD/MM/AAAA';
+  const [showScanner, setShowScanner] = useState(false);
+  const [isLoadingBarcode, setIsLoadingBarcode] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const isFetchingProduct = useRef(false);
 
   async function handleRegister() {
-    if (!nome.trim()) {
-      Alert.alert('Campo obrigatório', 'Informe o nome do medicamento.');
-      return;
-    }
-    if (!validade) {
-      Alert.alert('Campo obrigatório', 'Selecione a validade do medicamento.');
+    const validationError = validateMedicineForm(nome, validade);
+    if (validationError) {
+      Alert.alert('Campo obrigatório', validationError);
       return;
     }
 
-    const quantidadeNumero = Number.parseInt(quantidade, 10);
-    const quantidadeNormalizada = Number.isNaN(quantidadeNumero) ? 0 : quantidadeNumero;
+    const quantidadeNormalizada = parseQuantidade(quantidade);
 
     try {
       await addDoc(collection(db, 'medicines'), {
         name: nome.trim(),
         description: descricao.trim(),
         amount: quantidadeNormalizada,
-        validate: Timestamp.fromDate(validade),     
-        // createdAt: serverTimestamp(),
+        validate: Timestamp.fromDate(validade as Date),
       });
 
       Alert.alert('Medicamento registrado', 'O medicamento foi salvo com sucesso.');
@@ -72,8 +59,8 @@ export default function MedicineRegisterScreen() {
       setDescricao('');
       setValidade(null);
       setQuantidade('');
-    } catch (err){
-       if (err instanceof FirebaseError) {
+    } catch (err) {
+      if (err instanceof FirebaseError) {
         console.log('Firestore error:', err.code, err.message);
         Alert.alert('Erro ao registrar', `${err.code}: ${err.message}`);
       } else {
@@ -83,24 +70,52 @@ export default function MedicineRegisterScreen() {
     }
   }
 
-  function handleOpenDatePicker() {
-    setShowDatePicker(true);
+  async function handleOpenScanner() {
+    if (isLoadingBarcode) return;
+
+    if (!cameraPermission?.granted) {
+      const result = await requestCameraPermission();
+      if (!result.granted) {
+        Alert.alert('Permissão necessária', 'Permita o uso da câmera para ler o código de barras.');
+        return;
+      }
+    }
+    isFetchingProduct.current = false;
+    setShowScanner(true);
   }
 
-  function handleDateChange(event: DateTimePickerEvent, selectedDate?: Date) {
-    if (event.type === 'dismissed') {
-      setShowDatePicker(false);
+  async function handleBarcodeScanned({ data }: { data: string }) {
+    if (isFetchingProduct.current) return;
+
+    const code = data?.trim();
+    if (!code) {
+      Alert.alert('Leitura inválida', 'Não foi possível obter o código de barras.');
       return;
     }
 
-    if (selectedDate) {
-      const normalizedDate = new Date(selectedDate);
-      normalizedDate.setHours(0, 0, 0, 0);
-      setValidade(normalizedDate);
-    }
+    isFetchingProduct.current = true;
+    setIsLoadingBarcode(true);
+    setShowScanner(false);
 
-    if (Platform.OS !== 'ios') {
-      setShowDatePicker(false);
+    try {
+      const product = await lookupProductByBarcode(code);
+
+      if (!product) {
+        Alert.alert('Produto não encontrado', 'Nenhuma informação retornada para este código.');
+        return;
+      }
+
+      setNome(product.name);
+      if (product.description) setDescricao(product.description);
+      Alert.alert('Produto encontrado', 'Nome e descrição preenchidos automaticamente.');
+    } catch {
+      Alert.alert(
+        'Erro na leitura',
+        'Não foi possível ler o código ou buscar o produto. Tente novamente.',
+      );
+    } finally {
+      isFetchingProduct.current = false;
+      setIsLoadingBarcode(false);
     }
   }
 
@@ -120,84 +135,20 @@ export default function MedicineRegisterScreen() {
               Registre o novo medicamento
             </ThemedText>
 
-            <ThemedText type="defaultSemiBold" style={styles.label}>
-              Nome
-            </ThemedText>
-            <TextInput
-              style={[
-                styles.input,
-                { backgroundColor: inputBg, color: inputText, borderColor },
-              ]}
-              placeholder="Ex.: Paracetamol 500mg"
-              placeholderTextColor={placeholderColor}
-              value={nome}
-              onChangeText={setNome}
-              autoCapitalize="sentences"
-            />
-
-            <ThemedText type="defaultSemiBold" style={styles.label}>
-              Indicação
-            </ThemedText>
-            <TextInput
-              style={[
-                styles.input,
-                styles.inputMultiline,
-                { backgroundColor: inputBg, color: inputText, borderColor },
-              ]}
-              placeholder="Indicação ou observações"
-              placeholderTextColor={placeholderColor}
-              value={descricao}
-              onChangeText={setDescricao}
-              multiline
-              textAlignVertical="top"
-            />
-
-            <ThemedText type="defaultSemiBold" style={styles.label}>
-              Validade
-            </ThemedText>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Selecionar validade"
-              style={[
-                styles.input,
-                styles.dateInput,
-                { backgroundColor: inputBg, borderColor },
-              ]}
-              onPress={handleOpenDatePicker}>
-              <ThemedText style={{ color: validade ? inputText : placeholderColor }}>
-                {validadeLabel}
-              </ThemedText>
-            </Pressable>
-            {showDatePicker ? (
-              <DateTimePicker
-                value={validade ?? minValidadeDate}
-                mode="date"
-                display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                minimumDate={minValidadeDate}
-                onChange={handleDateChange}
-              />
-            ) : null}
-            {showDatePicker && Platform.OS === 'ios' ? (
-              <Pressable
-                style={({ pressed }) => [styles.iosDateDoneButton, { opacity: pressed ? 0.8 : 1 }]}
-                onPress={() => setShowDatePicker(false)}>
-                <ThemedText style={styles.iosDateDoneButtonLabel}>Confirmar data</ThemedText>
-              </Pressable>
-            ) : null}
-
-            <ThemedText type="defaultSemiBold" style={styles.label}>
-              Quantidade
-            </ThemedText>
-            <TextInput
-              style={[
-                styles.input,
-                { backgroundColor: inputBg, color: inputText, borderColor },
-              ]}
-              placeholder="Unidades em estoque"
-              placeholderTextColor={placeholderColor}
-              value={quantidade}
-              onChangeText={setQuantidade}
-              keyboardType="number-pad"
+            <MedicineFormFields
+              nome={nome}
+              onNomeChange={setNome}
+              descricao={descricao}
+              onDescricaoChange={setDescricao}
+              validade={validade}
+              onValidadeChange={setValidade}
+              quantidade={quantidade}
+              onQuantidadeChange={setQuantidade}
+              showBarcodeScanner
+              onOpenScanner={() => {
+                void handleOpenScanner();
+              }}
+              isLoadingBarcode={isLoadingBarcode}
             />
 
             <Pressable
@@ -215,14 +166,35 @@ export default function MedicineRegisterScreen() {
           </ScrollView>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
+
+      <Modal
+        visible={showScanner}
+        animationType="slide"
+        onRequestClose={() => setShowScanner(false)}>
+        <View style={styles.scannerContainer}>
+          <CameraView
+            style={styles.camera}
+            facing="back"
+            barcodeScannerSettings={{
+              barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128', 'code39'],
+            }}
+            onBarcodeScanned={showScanner ? handleBarcodeScanned : undefined}
+          />
+          <Pressable
+            style={({ pressed }) => [styles.closeScanner, { opacity: pressed ? 0.8 : 1 }]}
+            onPress={() => setShowScanner(false)}>
+            <ThemedText style={styles.closeScannerLabel}>Fechar câmera</ThemedText>
+          </Pressable>
+        </View>
+      </Modal>
     </ThemedView>
   );
 }
 
-  const styles = StyleSheet.create({
-    flex: {
-      flex: 1,
-    },
+const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   screen: {
     flex: 1,
   },
@@ -237,33 +209,21 @@ export default function MedicineRegisterScreen() {
     lineHeight: 30,
     marginBottom: 24,
   },
-  label: {
-    marginBottom: 6,
-    fontSize: 14,
+  scannerContainer: {
+    flex: 1,
+    backgroundColor: '#000',
   },
-  input: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+  camera: {
+    flex: 1,
+  },
+  closeScanner: {
+    padding: 20,
+    alignItems: 'center',
+    backgroundColor: '#111',
+  },
+  closeScannerLabel: {
+    color: '#fff',
     fontSize: 16,
-    marginBottom: 16,
-  },
-  inputMultiline: {
-    minHeight: 96,
-    paddingTop: 12,
-  },
-  dateInput: {
-    justifyContent: 'center',
-  },
-  iosDateDoneButton: {
-    alignSelf: 'flex-end',
-    marginBottom: 16,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-  },
-  iosDateDoneButtonLabel: {
-    fontSize: 14,
     fontWeight: '600',
   },
   button: {
@@ -277,7 +237,3 @@ export default function MedicineRegisterScreen() {
     fontWeight: '600',
   },
 });
-
-function formatDateBR(date: Date): string {
-  return date.toLocaleDateString('pt-BR');
-}

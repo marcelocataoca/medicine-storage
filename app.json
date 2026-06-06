@@ -40,11 +40,23 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      [
+        "expo-camera",{
+          "cameraPermission": "O app precisa da câmera para ler códigos de barras dos medicamentos.",
+          "recordAudioAndroid": false
+        }
+      ] 
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "505a8974-b3d8-4f2c-b816-82845cc0cc01"
+      }
     }
   }
 }

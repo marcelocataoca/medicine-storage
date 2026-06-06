@@ -19,22 +19,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { auth, db } from '@/lib/firebase';
-
-type Medicine = {
-  id: string;
-  name: string;
-  description: string;
-  /** ISO YYYY-MM-DD */
-  validade: string;
-  quantidade: number;
-};
-
-type MedicineDocument = {
-  name?: unknown;
-  description?: unknown;
-  validate?: unknown;
-  amount?: unknown;
-};
+import {
+  dateToISODate,
+  normalizeMedicine,
+  type Medicine,
+  type MedicineDocument,
+} from '@/lib/medicine';
 
 type PendingDelete = {
   id: string;
@@ -64,34 +54,6 @@ function formatValidadeBR(isoDate: string): string {
   if (!isoDate) return 'Sem validade';
   const [y, m, d] = isoDate.split('-');
   return `${d}/${m}/${y}`;
-}
-
-function dateToISODate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function isFirestoreTimestamp(value: unknown): value is Timestamp {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'toDate' in value &&
-    typeof (value as Timestamp).toDate === 'function'
-  );
-}
-
-function normalizeMedicine(id: string, data: MedicineDocument): Medicine {
-  const validateDate = isFirestoreTimestamp(data.validate) ? data.validate.toDate() : null;
-
-  return {
-    id,
-    name: typeof data.name === 'string' ? data.name : 'Medicamento sem nome',
-    description: typeof data.description === 'string' ? data.description : '',
-    validade: validateDate ? dateToISODate(validateDate) : '',
-    quantidade: typeof data.amount === 'number' ? data.amount : 0,
-  };
 }
 
   const Input = ({ placeholder, value, onChangeText, style }: {
@@ -256,10 +218,20 @@ export default function HomeScreen() {
     }
   }
 
-  function handleRowPressDismissDelete() {
-    setSelectedForDeleteId((current) => {
-      if (current === null) return current;
-      return null;
+  function handleRowPress(item: Medicine) {
+    if (selectedForDeleteId === item.id) {
+      setSelectedForDeleteId(null);
+      return;
+    }
+
+    if (selectedForDeleteId !== null) {
+      setSelectedForDeleteId(null);
+      return;
+    }
+
+    router.push({
+      pathname: '/medicine/details',
+      params: { id: item.id },
     });
   }
 
@@ -300,7 +272,7 @@ export default function HomeScreen() {
                 accessibilityLabel={showDelete ? 'Fechar exclusão ou toque longo para outro item' : item.name}
                 delayLongPress={300}
                 onLongPress={() => setSelectedForDeleteId(item.id)}
-                onPress={handleRowPressDismissDelete}
+                onPress={() => handleRowPress(item)}
                 style={({ pressed }) => [
                   styles.resultItemMainPressable,
                   pressed && styles.resultItemPressed,
@@ -310,8 +282,14 @@ export default function HomeScreen() {
                     styles.resultItemLeft,
                     showDelete && styles.resultItemLeftWhenDeleteVisible,
                   ]}>
-                  <Text style={styles.resultItemTitle}>{item.name}</Text>
-                  <Text style={styles.resultItemDesc}>{item.description}</Text>
+                  <Text style={styles.resultItemTitle} numberOfLines={3}
+                    ellipsizeMode="tail">{item.name}</Text>
+                  <Text
+                    style={styles.resultItemDesc}
+                    numberOfLines={3}
+                    ellipsizeMode="tail">
+                    {item.description}
+                  </Text>
                 </View>
                 <View style={styles.resultItemRight}>
                   <View style={styles.expiryLine}>
@@ -457,7 +435,7 @@ function getFilteredMedicines(query: string, medicines: Medicine[]): Medicine[] 
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    flex: 1,   
   },
   headerRow: {
     flexDirection: 'row',
@@ -558,7 +536,7 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     flex: 1,
-    padding: 20,
+    padding: 10,
     alignItems: 'center',
     marginTop: 8,
   },
