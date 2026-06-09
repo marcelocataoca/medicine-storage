@@ -33,6 +33,10 @@ yarn-error.*
 # local env files (segredos — não commitar)
 .env
 .env*.local
+.env
+
+# Google services config
+google-services.json
 
 # typescript
 *.tsbuildinfo

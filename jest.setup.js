@@ -1,3 +1,16 @@
+// Valores mínimos para `lib/firebase.ts` (assertConfig) em testes.
+process.env.EXPO_PUBLIC_FIREBASE_API_KEY = process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? 'test-api-key';
+process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN =
+  process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? 'test.firebaseapp.com';
+process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID =
+  process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? 'test-project';
+process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET =
+  process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? 'test-project.appspot.com';
+process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID =
+  process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? '123456789';
+process.env.EXPO_PUBLIC_FIREBASE_APP_ID =
+  process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? '1:123456789:web:abcdef';
+
 // Patches expo/src/winter lazy globals installed by jest-expo's preset setup.
 // Those getters load ESM-only packages (e.g. @ungap/structured-clone) via
 // require(), which Jest 30's CJS runtime rejects before any test runs.

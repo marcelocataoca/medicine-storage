@@ -24,7 +24,7 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="register"
+        name="medicine-register"
         options={{
           title: 'Cadastro',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="plus" color={color} />,

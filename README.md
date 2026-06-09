@@ -4,6 +4,12 @@ Aplicativo mobile para **controle de estoque pessoal de remédios**. Permite ao 
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
+## Firebase e build Android (EAS)
+
+Desenvolvimento local: copie `.env.example` → `.env` e preencha as variáveis `EXPO_PUBLIC_FIREBASE_*`.
+
+APK de teste: `eas build --profile preview --platform android`. As variáveis Firebase de build ficam no EAS (não no Git); detalhes em [docs/eas-build-secrets.md](docs/eas-build-secrets.md).
+
 ## Get started
 
 1. Install dependencies
