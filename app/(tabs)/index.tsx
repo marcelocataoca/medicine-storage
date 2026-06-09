@@ -122,7 +122,7 @@ export default function HomeScreen() {
     </View>
   );
 }
-
+  
 /** Validades espalhadas para exercitar as tags (<30d vermelho, 30–89d amarelo, ≥90d verde). Referência: 2026-04-06. */
 const MEDICINES: Medicine[] = [
   { id: '1', name: 'Paracetamol', description: 'Dor e febre', validade: '2026-04-25', quantidade: 24 },
