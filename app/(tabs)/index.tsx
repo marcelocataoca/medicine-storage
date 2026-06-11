@@ -20,7 +20,7 @@ import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { auth, db } from '@/lib/firebase';
 import {
-  dateToISODate,
+  formatISODateBR,
   normalizeMedicine,
   type Medicine,
   type MedicineDocument,
@@ -32,6 +32,12 @@ type PendingDelete = {
 };
 
 type ExpiryUrgency = 'critical' | 'warning' | 'ok';
+
+type ExpiryVisuals = {
+  iconName: keyof typeof Ionicons.glyphMap;
+  tagStyle: object;
+  iconColor: string;
+};
 
 function daysUntilExpiry(isoDate: string): number {
   const [y, m, d] = isoDate.split('-').map(Number);
@@ -50,35 +56,11 @@ function getExpiryUrgency(isoDate: string): ExpiryUrgency {
   return 'ok';
 }
 
-function formatValidadeBR(isoDate: string): string {
-  if (!isoDate) return 'Sem validade';
-  const [y, m, d] = isoDate.split('-');
-  return `${d}/${m}/${y}`;
+function getFilteredMedicines(query: string, medicines: Medicine[]): Medicine[] {
+  if (!query) return medicines;
+  const q = query.toLowerCase();
+  return medicines.filter((m) => (m.name + ' ' + m.description).toLowerCase().includes(q));
 }
-
-  const Input = ({ placeholder, value, onChangeText, style }: {
-    placeholder: string;
-    value: string;
-    onChangeText: (text: string) => void;
-    style?: object;
-  }) => {
-    return (
-      <View style={[styles.inputContainer, style]}>
-        <TextInput 
-          style={[styles.contentInput, style]}
-          placeholder={placeholder}
-          value={value}
-          onChangeText={onChangeText}
-        />
-        <Ionicons 
-          name="search" 
-          size={20} 
-          color="#999" 
-          style={styles.icon}
-        />
-      </View>
-    )
-  };
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -219,12 +201,7 @@ export default function HomeScreen() {
   }
 
   function handleRowPress(item: Medicine) {
-    if (selectedForDeleteId === item.id) {
-      setSelectedForDeleteId(null);
-      return;
-    }
-
-    if (selectedForDeleteId !== null) {
+    if (selectedForDeleteId === item.id || selectedForDeleteId === null) {
       setSelectedForDeleteId(null);
       return;
     }
@@ -233,109 +210,6 @@ export default function HomeScreen() {
       pathname: '/medicine/details',
       params: { id: item.id },
     });
-  }
-
-  let medicinesContent = (
-    <FlatList
-      data={filteredMedicines}
-      keyExtractor={(item) => item.id}
-      ListEmptyComponent={
-        <View style={styles.feedbackContainer}>
-          <Text style={styles.feedbackText}>Nenhum medicamento encontrado.</Text>
-        </View>
-      }
-      renderItem={({ item }) => {
-        const urgency = getExpiryUrgency(item.validade);
-        let iconName: keyof typeof Ionicons.glyphMap = 'checkmark-circle-outline';
-        let tagStyle = styles.expiryTagOk;
-        let iconColor = '#15803D';
-        if (urgency === 'critical') {
-          iconName = 'alert-circle';
-          tagStyle = styles.expiryTagCritical;
-          iconColor = '#B91C1C';
-        } else if (urgency === 'warning') {
-          iconName = 'hourglass-outline';
-          tagStyle = styles.expiryTagWarning;
-          iconColor = '#A16207';
-        }
-
-        const showDelete = selectedForDeleteId === item.id;
-
-        return (
-          <View style={styles.resultItem}>
-            <View
-              style={[
-                styles.resultItemRow,
-                showDelete && styles.resultItemRowWithDeleteReveal,
-              ]}>
-              <Pressable
-                accessibilityLabel={showDelete ? 'Fechar exclusão ou toque longo para outro item' : item.name}
-                delayLongPress={300}
-                onLongPress={() => setSelectedForDeleteId(item.id)}
-                onPress={() => handleRowPress(item)}
-                style={({ pressed }) => [
-                  styles.resultItemMainPressable,
-                  pressed && styles.resultItemPressed,
-                ]}>
-                <View
-                  style={[
-                    styles.resultItemLeft,
-                    showDelete && styles.resultItemLeftWhenDeleteVisible,
-                  ]}>
-                  <Text style={styles.resultItemTitle} numberOfLines={3}
-                    ellipsizeMode="tail">{item.name}</Text>
-                  <Text
-                    style={styles.resultItemDesc}
-                    numberOfLines={3}
-                    ellipsizeMode="tail">
-                    {item.description}
-                  </Text>
-                </View>
-                <View style={styles.resultItemRight}>
-                  <View style={styles.expiryLine}>
-                    <View style={[styles.expiryTag, tagStyle]}>
-                      <Ionicons name={iconName} size={14} color={iconColor} />
-                    </View>
-                    <Text style={styles.resultItemValidade}>{formatValidadeBR(item.validade)}</Text>
-                  </View>
-                  <Text style={styles.resultItemQuantidade}>{item.quantidade} em estoque</Text>
-                </View>
-              </Pressable>
-
-              {showDelete ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Excluir ${item.name}`}
-                  hitSlop={8}
-                  onPress={() => confirmDelete(item)}
-                  style={({ pressed }) => [
-                    styles.deleteButtonInline,
-                    pressed && styles.deleteButtonPressed,
-                  ]}>
-                  <Ionicons name="trash-outline" size={18} color="#B91C1C" />
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-        );
-      }}
-      showsVerticalScrollIndicator={false}
-    />
-  );
-
-  if (isLoadingMedicines) {
-    medicinesContent = (
-      <View style={styles.feedbackContainer}>
-        <ActivityIndicator color={palette.tint} />
-        <Text style={styles.feedbackText}>Carregando medicamentos...</Text>
-      </View>
-    );
-  } else if (medicineLoadError) {
-    medicinesContent = (
-      <View style={styles.feedbackContainer}>
-        <Text style={styles.feedbackText}>{medicineLoadError}</Text>
-      </View>
-    );
   }
 
   return (
@@ -404,16 +278,25 @@ export default function HomeScreen() {
       </Modal>
 
       <View style={styles.contentContainer}>
-        <Input 
+        <Input
           placeholder="Busque o remédio"
           value={text}
           onChangeText={setText}
-          style={styles.contentInput}        
+          style={styles.contentInput}
         />
 
         <View style={styles.resultBox}>
-          {medicinesContent}
-        </View>        
+          {renderMedicinesBody({
+            isLoading: isLoadingMedicines,
+            loadError: medicineLoadError,
+            tint: palette.tint,
+            medicines: filteredMedicines,
+            selectedForDeleteId,
+            onSelectForDelete: setSelectedForDeleteId,
+            onRowPress: handleRowPress,
+            onConfirmDelete: confirmDelete,
+          })}
+        </View>
       </View>
       {undoVisible && pendingDelete ? (
         <View style={[styles.undoToast, { bottom: insets.bottom + 12 }]}>
@@ -427,15 +310,189 @@ export default function HomeScreen() {
   );
 }
 
-function getFilteredMedicines(query: string, medicines: Medicine[]): Medicine[] {
-  if (!query) return medicines;
-  const q = query.toLowerCase();
-  return medicines.filter((m) => (m.name + ' ' + m.description).toLowerCase().includes(q));
+function getExpiryVisuals(urgency: ExpiryUrgency): ExpiryVisuals {
+  if (urgency === 'critical') {
+    return {
+      iconName: 'alert-circle',
+      tagStyle: styles.expiryTagCritical,
+      iconColor: '#B91C1C',
+    };
+  }
+  if (urgency === 'warning') {
+    return {
+      iconName: 'hourglass-outline',
+      tagStyle: styles.expiryTagWarning,
+      iconColor: '#A16207',
+    };
+  }
+  return {
+    iconName: 'checkmark-circle-outline',
+    tagStyle: styles.expiryTagOk,
+    iconColor: '#15803D',
+  };
 }
+
+type MedicineListItemProps = {
+  item: Medicine;
+  selectedForDeleteId: string | null;
+  onSelectForDelete: (id: string) => void;
+  onRowPress: (item: Medicine) => void;
+  onConfirmDelete: (item: Medicine) => void;
+};
+
+function MedicineListItem({
+  item,
+  selectedForDeleteId,
+  onSelectForDelete,
+  onRowPress,
+  onConfirmDelete,
+}: MedicineListItemProps) {
+  const { iconName, tagStyle, iconColor } = getExpiryVisuals(getExpiryUrgency(item.validade));
+  const showDelete = selectedForDeleteId === item.id;
+
+  return (
+    <View style={styles.resultItem}>
+      <View
+        style={[
+          styles.resultItemRow,
+          showDelete && styles.resultItemRowWithDeleteReveal,
+        ]}>
+        <Pressable
+          accessibilityLabel={showDelete ? 'Fechar exclusão ou toque longo para outro item' : item.name}
+          delayLongPress={300}
+          onLongPress={() => onSelectForDelete(item.id)}
+          onPress={() => onRowPress(item)}
+          style={({ pressed }) => [
+            styles.resultItemMainPressable,
+            pressed && styles.resultItemPressed,
+          ]}>
+          <View
+            style={[
+              styles.resultItemLeft,
+              showDelete && styles.resultItemLeftWhenDeleteVisible,
+            ]}>
+            <Text style={styles.resultItemTitle} numberOfLines={3} ellipsizeMode="tail">
+              {item.name}
+            </Text>
+            <Text style={styles.resultItemDesc} numberOfLines={3} ellipsizeMode="tail">
+              {item.description}
+            </Text>
+          </View>
+          <View style={styles.resultItemRight}>
+            <View style={styles.expiryLine}>
+              <View style={[styles.expiryTag, tagStyle]}>
+                <Ionicons name={iconName} size={14} color={iconColor} />
+              </View>
+              <Text style={styles.resultItemValidade}>{formatISODateBR(item.validade)}</Text>
+            </View>
+            <Text style={styles.resultItemQuantidade}>{item.quantidade} em estoque</Text>
+          </View>
+        </Pressable>
+
+        {showDelete ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Excluir ${item.name}`}
+            hitSlop={8}
+            onPress={() => onConfirmDelete(item)}
+            style={({ pressed }) => [
+              styles.deleteButtonInline,
+              pressed && styles.deleteButtonPressed,
+            ]}>
+            <Ionicons name="trash-outline" size={18} color="#B91C1C" />
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+type RenderMedicinesBodyParams = {
+  isLoading: boolean;
+  loadError: string | null;
+  tint: string;
+  medicines: Medicine[];
+  selectedForDeleteId: string | null;
+  onSelectForDelete: (id: string) => void;
+  onRowPress: (item: Medicine) => void;
+  onConfirmDelete: (item: Medicine) => void;
+};
+
+function renderMedicinesBody({
+  isLoading,
+  loadError,
+  tint,
+  medicines,
+  selectedForDeleteId,
+  onSelectForDelete,
+  onRowPress,
+  onConfirmDelete,
+}: RenderMedicinesBodyParams) {
+  if (isLoading) {
+    return (
+      <View style={styles.feedbackContainer}>
+        <ActivityIndicator color={tint} />
+        <Text style={styles.feedbackText}>Carregando medicamentos...</Text>
+      </View>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <View style={styles.feedbackContainer}>
+        <Text style={styles.feedbackText}>{loadError}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <FlatList
+      data={medicines}
+      keyExtractor={(item) => item.id}
+      ListEmptyComponent={
+        <View style={styles.feedbackContainer}>
+          <Text style={styles.feedbackText}>Nenhum medicamento encontrado.</Text>
+        </View>
+      }
+      renderItem={({ item }) => (
+        <MedicineListItem
+          item={item}
+          selectedForDeleteId={selectedForDeleteId}
+          onSelectForDelete={onSelectForDelete}
+          onRowPress={onRowPress}
+          onConfirmDelete={onConfirmDelete}
+        />
+      )}
+      showsVerticalScrollIndicator={false}
+    />
+  );
+}
+
+const Input = ({
+  placeholder,
+  value,
+  onChangeText,
+  style,
+}: {
+  placeholder: string;
+  value: string;
+  onChangeText: (text: string) => void;
+  style?: object;
+}) => (
+  <View style={[styles.inputContainer, style]}>
+    <TextInput
+      style={[styles.contentInput, style]}
+      placeholder={placeholder}
+      value={value}
+      onChangeText={onChangeText}
+    />
+    <Ionicons name="search" size={20} color="#999" style={styles.icon} />
+  </View>
+);
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,   
+    flex: 1,
   },
   headerRow: {
     flexDirection: 'row',

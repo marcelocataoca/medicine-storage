@@ -73,6 +73,13 @@ export function formatDateBR(date: Date): string {
   return date.toLocaleDateString('pt-BR');
 }
 
+/** Formata ISO YYYY-MM-DD para exibição DD/MM/AAAA. */
+export function formatISODateBR(isoDate: string): string {
+  if (!isoDate) return 'Sem validade';
+  const [y, m, d] = isoDate.split('-');
+  return `${d}/${m}/${y}`;
+}
+
 export function validateMedicineForm(nome: string, validade: Date | null): string | null {
   if (!nome.trim()) {
     return 'Informe o nome do medicamento.';
